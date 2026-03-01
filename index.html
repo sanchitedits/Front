@@ -1566,19 +1566,30 @@ function loadVideo(element) {
         }
 
         // --- 5. CHATBOT SEND LOGIC (UPDATED) ---
-        async function handleChatSubmit(e) {
-            e.preventDefault();
-            const input = document.getElementById('chat-input');
-            const userMsg = input.value.trim();
-            if (!userMsg) return;
 
-            appendMessage('user', userMsg);
-            input.value = '';
+// 1. THIS IS THE MEMORY: We create it OUTSIDE the function so it doesn't delete itself
+let chatHistory = [];
 
-            const loadingId = appendMessage('ai', 'Thinking...');
+async function handleChatSubmit(e) {
+    e.preventDefault();
+    const input = document.getElementById('chat-input');
+    const userMsg = input.value.trim();
+    if (!userMsg) return;
 
-            try {
-                const systemPrompt = `
+    appendMessage('user', userMsg);
+    input.value = '';
+
+    const loadingId = appendMessage('ai', 'Thinking...');
+
+    // 2. ADD USER'S NEW MESSAGE TO MEMORY
+    chatHistory.push({
+        role: "user",
+        parts: [{ text: userMsg }]
+    });
+
+    try {
+        // 3. YOUR BOT'S BRAIN/RULES (Notice we removed the ${userMsg} from the bottom)
+        const systemPersona = `
 You are the Senior Retention Strategist for Quant Media, a high-end agency that engineers viral videos.
 Your Goal: Qualify leads and get them to book a strategy audit: https://cal.com/quantmedia/15min
 
@@ -1596,30 +1607,35 @@ SALES RULES:
 1. IF they ask about price: Do not apologize. State the range confidently and add: "We're an investment, not a cost. What is your current average view duration?"
 2. IF they say it's expensive: Ask, "How much ad revenue are you losing right now by having 30% retention instead of 60%?"
 3. IF they ask for a portfolio: Say, "I can show you our case studies on a quick call. It's better to walk you through the analytics."
-4. ALWAYS END WITH A QUESTION or a CALL TO ACTION. Never leave a dead end.
+4. ALWAYS END WITH A QUESTION or a CALL TO ACTION. Never leave a dead end.`;
 
-User Question: ${userMsg}
-`;
+        // 4. SEND BOTH THE RULES AND THE CHAT HISTORY TO GOOGLE
+        const response = await fetch(backendUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ 
+                systemInstruction: { parts: [{ text: systemPersona }] },
+                contents: chatHistory 
+            })
+        });
 
+        const data = await response.json();
+        
+        // Extract AI response
+        const aiText = data.candidates[0].content.parts[0].text;
+        document.getElementById(loadingId).innerText = aiText;
 
-                // UPDATED: Fetch to Replit Backend
-                const response = await fetch(backendUrl, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ contents: [{ parts: [{ text: systemPrompt }] }] })
-                });
+        // 5. ADD THE AI'S RESPONSE TO THE MEMORY SO IT DOESN'T FORGET
+        chatHistory.push({
+            role: "model",
+            parts: [{ text: aiText }]
+        });
 
-                const data = await response.json();
-                
-                // Assuming Proxy returns standard Google response structure:
-                const aiText = data.candidates[0].content.parts[0].text;
-                document.getElementById(loadingId).innerText = aiText;
-
-            } catch (error) {
-                document.getElementById(loadingId).innerText = "Sorry, I'm having trouble connecting to the server.";
-                console.error(error);
-            }
-        }
+    } catch (error) {
+        document.getElementById(loadingId).innerText = "Sorry, I'm having trouble connecting to the server.";
+        console.error(error);
+    }
+}
 
         function appendMessage(sender, text) {
             const div = document.createElement('div');
